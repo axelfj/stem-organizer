@@ -14,7 +14,17 @@ fixes the project **before** export, and checks the stems **after** export.
 
 Ableton Live and REAPER versions are on the roadmap (see [docs/ROADMAP.md](docs/ROADMAP.md)).
 
-## Quick start
+## Download
+
+Get the app from the [Releases page](https://github.com/axelfj/stem-organizer/releases):
+`StemOrganizer.exe` for Windows, `StemOrganizer.dmg` for macOS (Apple silicon).
+It has two buttons: **Install FL Studio script** and **Check a stems folder**.
+
+The app is not code-signed yet, so the first launch shows a warning:
+- Windows: *More info > Run anyway*.
+- macOS: open it once, then *System Settings > Privacy & Security > Open Anyway*.
+
+## Quick start (from source)
 
 **FL Studio**: install the script as described in [fl-studio/README.md](fl-studio/README.md),
 then in *VIEW > Script output > Interpreter* type `preview()` to see the plan and
