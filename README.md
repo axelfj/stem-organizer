@@ -20,9 +20,13 @@ Get the app from the [Releases page](https://github.com/axelfj/stem-organizer/re
 `StemOrganizer.exe` for Windows, `StemOrganizer.dmg` for macOS (Apple silicon).
 It has two buttons: **Install FL Studio script** and **Check a stems folder**.
 
-The app is not code-signed yet, so the first launch shows a warning:
+Windows users can also get it from the Microsoft Store (coming soon), which
+installs it with no warning. The downloads above are not code-signed yet, so
+the first launch shows a warning:
 - Windows: *More info > Run anyway*.
 - macOS: open it once, then *System Settings > Privacy & Security > Open Anyway*.
+
+How the Store package is built and published: [docs/MICROSOFT_STORE.md](docs/MICROSOFT_STORE.md).
 
 ## Quick start (from source)
 

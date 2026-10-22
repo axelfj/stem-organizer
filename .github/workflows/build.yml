@@ -47,6 +47,51 @@ jobs:
           name: StemOrganizer-Windows
           path: dist/StemOrganizer.exe
 
+  windows-store:
+    needs: test
+    runs-on: windows-latest
+    env:
+      # Set these repository variables from Partner Center > Product identity.
+      IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME || 'ROMMUSER.StemOrganizer' }}
+      PUBLISHER: ${{ vars.MSIX_PUBLISHER || 'CN=ROMMUSER' }}
+      PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'ROMMUSER' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy pyinstaller pillow
+      - name: Build app folder
+        run: >
+          pyinstaller --noconfirm --onedir --windowed
+          --name StemOrganizer
+          --paths stemcheck
+          --add-data "fl-studio/device_StemOrganizer.py;fl-studio"
+          app/stem_organizer_app.py
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/StemOrganizer/StemOrganizer.exe -ArgumentList "--selftest" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: Package StemOrganizer.msix
+        shell: pwsh
+        run: |
+          $version = "0.1.0.0"
+          if ("${{ github.ref }}" -match '^refs/tags/v(\d+)\.(\d+)\.(\d+)$') {
+            $version = "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
+          }
+          python packaging/windows/make_assets.py dist/StemOrganizer/Assets
+          $m = Get-Content packaging/windows/AppxManifest.xml -Raw
+          $m = $m.Replace('$(IDENTITY_NAME)', $env:IDENTITY_NAME).Replace('$(PUBLISHER_DISPLAY_NAME)', $env:PUBLISHER_DISPLAY_NAME).Replace('$(PUBLISHER)', $env:PUBLISHER).Replace('$(VERSION)', $version)
+          Set-Content -Path dist/StemOrganizer/AppxManifest.xml -Value $m -Encoding utf8
+          $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          & $makeappx.FullName pack /d dist/StemOrganizer /p StemOrganizer.msix /o
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StemOrganizer-MicrosoftStore
+          path: StemOrganizer.msix
+
   macos:
     needs: test
     runs-on: macos-latest
