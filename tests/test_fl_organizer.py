@@ -33,12 +33,12 @@ class PlanTest(unittest.TestCase):
         self.assertEqual([(m["name"], m["new_track"], m["route_to"]) for m in plan["moves"]],
                          [("Kick", 1, 0), ("Clap", 2, 0)])
 
-    def test_shared_plain_insert_first_channel_keeps_it(self):
+    def test_shared_plain_insert_preserves_original_bus(self):
         plan = so.build_plan([ch(0, "Kick", 1), ch(1, "Clap", 1), ch(2, "Hat", 1)], tracks())
-        self.assertEqual(plan["renames"][0]["track"], 1)
+        self.assertEqual(plan["renames"], [])
         self.assertEqual([(m["name"], m["new_track"], m["route_to"]) for m in plan["moves"]],
-                         [("Clap", 2, 0), ("Hat", 3, 0)])
-        self.assertEqual(plan["warnings"], [])
+                         [("Kick", 2, 1), ("Clap", 3, 1), ("Hat", 4, 1)])
+        self.assertIn("bus", plan["warnings"][0])
 
     def test_shared_insert_with_fx_becomes_bus(self):
         plan = so.build_plan([ch(0, "Kick", 1), ch(1, "Clap", 1)],
@@ -138,3 +138,4 @@ class AdapterTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

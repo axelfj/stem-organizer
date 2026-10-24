@@ -42,12 +42,21 @@ def read_header(f):
     if riff not in (b"RIFF", b"RF64") or wave != b"WAVE":
         raise WavError("not a WAV file")
     fmt = None
+    rf64_data_size = None
     while True:
         head = f.read(8)
         if len(head) < 8:
             raise WavError("no audio data chunk")
         cid, size = struct.unpack("<4sI", head)
-        if cid == b"fmt ":
+        if cid == b"ds64":
+            if riff != b"RF64" or size < 28:
+                raise WavError("broken RF64 size chunk")
+            body = f.read(28)
+            if len(body) != 28:
+                raise WavError("truncated RF64 size chunk")
+            _, rf64_data_size, _, _ = struct.unpack("<QQQI", body)
+            f.seek(size - 28 + (size & 1), os.SEEK_CUR)
+        elif cid == b"fmt ":
             body = f.read(size + (size & 1))
             tag, ch, sr, _br, _align, bits = struct.unpack("<HHIIHH", body[:16])
             if tag == 0xFFFE and len(body) >= 26:
@@ -56,11 +65,16 @@ def read_header(f):
         elif cid == b"data":
             if fmt is None:
                 raise WavError("data before format chunk")
-            if size == 0xFFFFFFFF:  # RF64 placeholder: read to end of file
-                here = f.tell()
-                f.seek(0, os.SEEK_END)
-                size = f.tell() - here
-                f.seek(here)
+            if size == 0xFFFFFFFF:
+                if rf64_data_size is None:
+                    raise WavError("RF64 data requires a ds64 size chunk")
+                size = rf64_data_size
+            here = f.tell()
+            f.seek(0, os.SEEK_END)
+            available = f.tell() - here
+            f.seek(here)
+            if size > available:
+                raise WavError("truncated WAV audio data")
             return fmt, size
         else:
             f.seek(size + (size & 1), os.SEEK_CUR)
@@ -92,8 +106,12 @@ def analyze(path):
     with open(path, "rb") as f:
         fmt, size = read_header(f)
         frame_bytes = fmt["channels"] * fmt["bits"] // 8
+        if fmt["channels"] < 1 or fmt["rate"] <= 0 or fmt["bits"] not in (8, 16, 24, 32, 64):
+            raise WavError("unsupported WAV layout")
         if frame_bytes == 0:
             raise WavError("broken format chunk")
+        if size % frame_bytes:
+            raise WavError("partial WAV audio frame")
         frames = size // frame_bytes
         peak = 0.0
         dual_mono = fmt["channels"] == 2
@@ -102,11 +120,12 @@ def analyze(path):
         while left > 0:
             n = min(left, CHUNK_FRAMES)
             raw = f.read(n * frame_bytes)
-            if not raw:
-                break
-            raw = raw[: len(raw) - len(raw) % frame_bytes]
+            if len(raw) != n * frame_bytes:
+                raise WavError("truncated WAV audio data")
             digest.update(raw)
             x = decode(raw, fmt).reshape(-1, fmt["channels"])
+            if not np.isfinite(x).all():
+                raise WavError("non-finite WAV samples")
             if x.size:
                 peak = max(peak, float(np.abs(x).max()))
                 if dual_mono and not np.array_equal(x[:, 0], x[:, 1]):
@@ -239,3 +258,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
+
