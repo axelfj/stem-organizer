@@ -1,0 +1,135 @@
+name: Build installers
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy
+      - run: python -m unittest discover -s tests -v
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy pyinstaller
+      - name: Build StemOrganizer.exe
+        run: >
+          pyinstaller --noconfirm --onefile --windowed
+          --name StemOrganizer
+          --paths stemcheck
+          --add-data "fl-studio/device_StemOrganizer.py;fl-studio"
+          app/stem_organizer_app.py
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/StemOrganizer.exe -ArgumentList "--selftest" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StemOrganizer-Windows
+          path: dist/StemOrganizer.exe
+
+  windows-store:
+    needs: test
+    runs-on: windows-latest
+    env:
+      # Set these repository variables from Partner Center > Product identity.
+      IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME || 'ROMMUSER.StemOrganizer' }}
+      PUBLISHER: ${{ vars.MSIX_PUBLISHER || 'CN=ROMMUSER' }}
+      PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'ROMMUSER' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy pyinstaller pillow
+      - name: Build app folder
+        run: >
+          pyinstaller --noconfirm --onedir --windowed
+          --name StemOrganizer
+          --paths stemcheck
+          --add-data "fl-studio/device_StemOrganizer.py;fl-studio"
+          app/stem_organizer_app.py
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/StemOrganizer/StemOrganizer.exe -ArgumentList "--selftest" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: Package StemOrganizer.msix
+        shell: pwsh
+        run: |
+          $version = "0.1.0.0"
+          if ("${{ github.ref }}" -match '^refs/tags/v(\d+)\.(\d+)\.(\d+)$') {
+            $version = "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
+          }
+          python packaging/windows/make_assets.py dist/StemOrganizer/Assets
+          $m = Get-Content packaging/windows/AppxManifest.xml -Raw
+          $m = $m.Replace('$(IDENTITY_NAME)', $env:IDENTITY_NAME).Replace('$(PUBLISHER_DISPLAY_NAME)', $env:PUBLISHER_DISPLAY_NAME).Replace('$(PUBLISHER)', $env:PUBLISHER).Replace('$(VERSION)', $version)
+          Set-Content -Path dist/StemOrganizer/AppxManifest.xml -Value $m -Encoding utf8
+          $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          & $makeappx.FullName pack /d dist/StemOrganizer /p StemOrganizer.msix /o
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StemOrganizer-MicrosoftStore
+          path: StemOrganizer.msix
+
+  macos:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy pyinstaller
+      - name: Build Stem Organizer.app
+        run: >
+          pyinstaller --noconfirm --windowed
+          --name "Stem Organizer"
+          --osx-bundle-identifier com.rommuser.stemorganizer
+          --paths stemcheck
+          --add-data "fl-studio/device_StemOrganizer.py:fl-studio"
+          app/stem_organizer_app.py
+      - name: Smoke test
+        run: '"dist/Stem Organizer.app/Contents/MacOS/Stem Organizer" --selftest'
+      - name: Build StemOrganizer.dmg
+        run: |
+          mkdir dmg
+          cp -R "dist/Stem Organizer.app" dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "Stem Organizer" -srcfolder dmg -ov -format UDZO StemOrganizer.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StemOrganizer-macOS
+          path: StemOrganizer.dmg
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            StemOrganizer-Windows/StemOrganizer.exe
+            StemOrganizer-macOS/StemOrganizer.dmg
