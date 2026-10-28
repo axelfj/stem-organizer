@@ -109,3 +109,43 @@ class StemCheckTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CorruptAudioTest(unittest.TestCase):
+    def test_truncated_wav_fails_folder_and_cli(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, '01_Kick.wav')
+            write_wav(path, tone(n=88200))
+            with open(path, 'r+b') as f:
+                f.truncate(os.path.getsize(path) - 132300)
+            with self.assertRaises(stemcheck.WavError):
+                stemcheck.analyze(path)
+            _, problems = stemcheck.check_folder(folder)
+            self.assertTrue(any(p['level'] == 'error' for p in problems))
+            self.assertEqual(stemcheck.main([folder]), 1)
+
+    def test_rf64_uses_ds64_not_trailing_chunks(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, '01_Kick.wav')
+            data = np.arange(100, dtype='<i2').tobytes()
+            fmt = struct.pack('<HHIIHH', 1, 1, 44100, 88200, 2, 16)
+            ds64 = struct.pack('<QQQI', 0, len(data), 100, 0)
+            with open(path, 'wb') as f:
+                f.write(b'RF64' + struct.pack('<I', 0xffffffff) + b'WAVE')
+                f.write(b'ds64' + struct.pack('<I', len(ds64)) + ds64)
+                f.write(b'fmt ' + struct.pack('<I', len(fmt)) + fmt)
+                f.write(b'data' + struct.pack('<I', 0xffffffff) + data)
+                f.write(b'LIST' + struct.pack('<I', 4) + b'INFO')
+            self.assertEqual(stemcheck.analyze(path)['frames'], 100)
+
+    def test_partial_frame_and_nonfinite_float_fail(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, '01_Kick.wav')
+            write_wav(path, [float('nan')] * 20, fmt_float=True)
+            with self.assertRaises(stemcheck.WavError):
+                stemcheck.analyze(path)
+            write_wav(path, tone(n=100))
+            with open(path, 'r+b') as f:
+                f.truncate(os.path.getsize(path) - 1)
+            with self.assertRaises(stemcheck.WavError):
+                stemcheck.analyze(path)

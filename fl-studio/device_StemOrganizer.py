@@ -10,7 +10,7 @@ What it does when you run organize():
   * Every instrument / sample / audio-clip channel that shares a Mixer insert
     with other channels, or goes straight to Master, gets a free insert of its
     own, named and colored like the channel.
-  * If the shared insert had effects on it (a drum bus, a reverb bus...), the
+  * For every shared insert (a drum bus, a reverb bus...), the
     new insert is routed INTO that old insert, so the sound you hear does not
     change. The old insert becomes a bus.
   * Inserts that already hold exactly one channel and still have a default
@@ -93,23 +93,10 @@ def build_plan(channels, tracks):
                                 "color": ch["color"]})
             continue
 
-        # Shared insert (or Master). If the shared insert is untouched (no FX,
-        # default name), the first channel can simply keep it.
-        keep_first = (target != MASTER and info is not None
-                      and not info["has_fx"]
-                      and is_default_track_name(info["name"], target))
-        if keep_first:
-            first = group[0]
-            renames.append({"track": target, "name": clean_name(first["name"]),
-                            "color": first["color"]})
-            group = group[1:]
-            route_to = MASTER
-        elif info is None:
-            # Master, or a track outside the usable inserts.
-            route_to = MASTER
-        else:
-            # Keep whatever processing the shared insert does by feeding it.
-            route_to = target
+        # Name and plugin slots cannot prove that an insert is neutral: its
+        # fader, pan, EQ, sends or routing may be intentional. Keep the shared
+        # insert as a bus and feed every separated channel through it.
+        route_to = target if info is not None and target != MASTER else MASTER
 
         for ch in group:
             if not free:
@@ -250,3 +237,4 @@ def organize():
 def OnInit():
     print("Stem Organizer loaded. Type preview() or organize() in the "
           "Interpreter tab.")
+
